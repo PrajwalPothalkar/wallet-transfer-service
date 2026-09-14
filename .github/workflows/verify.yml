@@ -1,0 +1,29 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: mvn -B verify
+      - run: docker compose up --build -d
+      - run: |
+          for attempt in {1..45}; do
+            curl --fail http://localhost:8080/actuator/health && break
+            sleep 2
+          done
+      - run: node scripts/burst.mjs
+      - if: always()
+        run: docker compose down -v

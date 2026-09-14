@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: wallet-transfer-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/wallet}
+    username: ${SPRING_DATASOURCE_USERNAME:wallet}
+    password: ${SPRING_DATASOURCE_PASSWORD:wallet}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+  flyway:
+    enabled: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    deserialization:
+      # Money is integer paise. A decimal amount_paise (e.g. 100.7, or rupees-as-decimal)
+      # must be rejected as a bad request, never silently truncated to a long.
+      accept-float-as-int: false
+      fail-on-numbers-for-enums: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+wallet:
+  initial-balance-paise: ${WALLET_INITIAL_BALANCE_PAISE:100000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    distribution:
+      # Client-side p50/p95/p99 quantiles (quantile="0.99") readable straight off /metrics with
+      # curl. Deliberately no percentiles-histogram for http.server.requests: Micrometer 1.14's
+      # Prometheus exporter suppresses the quantile summary when buckets are published for the
+      # same meter (see HttpLatencyMetricsConfig).
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+
+logging:
+  level:
+    root: INFO

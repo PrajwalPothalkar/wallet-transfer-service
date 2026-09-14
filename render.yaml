@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: paytm-wallet-transfer-java
+    runtime: docker
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_DATASOURCE_URL
+        fromDatabase:
+          name: paytm-wallet-db-java
+          property: connectionString
+      - key: WALLET_INITIAL_BALANCE_PAISE
+        value: "100000"
+      - key: JAVA_TOOL_OPTIONS
+        value: "-XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=25"
+
+databases:
+  - name: paytm-wallet-db-java
+    plan: free
