@@ -109,22 +109,3 @@ The initial read does not create a TOCTOU risk because the unique insert remains
   - `wallet_idempotent_replays_total`
 
   Note: `http.server.requests` deliberately publishes client-side percentile quantiles rather than histogram buckets. In Micrometer 1.14 the Prometheus exporter suppresses the quantile series when buckets are published on the same meter, so the two are mutually exclusive; a numeric p99 line readable with curl is the better deal for a single-instance exercise (see `HttpLatencyMetricsConfig`).
-
-## Deploy on Render
-
-1. Create a public GitHub repository in your own account after reviewing and understanding every part of the code.
-2. In Render, create a new Blueprint and choose the repository. `render.yaml` creates the Docker web service plus managed Postgres.
-3. Copy the generated HTTPS URL and run:
-
-   ```bash
-   node scripts/burst.mjs https://your-service.onrender.com
-   ```
-
-4. Open `https://your-service.onrender.com/actuator/prometheus` to show metrics.
-5. Start Render Live tail, run the burst, and record the JSON log stream if a public logs URL is not available.
-
-The Docker image runs as a non-root `wallet` user and has an Actuator health check. `JAVA_TOOL_OPTIONS` caps JVM heap ergonomics for a 512 MB free instance. Free infrastructure is suitable only for the interview: warm it before the panel, and do not present it as production availability.
-
-## Honest AI disclosure
-
-Adapt this to the facts of your work. State which implementation decisions you directed, what you reviewed and tested yourself, and where you accepted AI suggestions. Do not claim authorship or validation that is not true.
