@@ -103,9 +103,9 @@ The initial read does not create a TOCTOU risk because the unique insert remains
 
 - All logs are JSON and contain `correlation_id`; the API returns the same ID in `X-Correlation-Id`.
 - Domain events: `wallet_created`, `wallet_get_or_create_replay`, `transfer_created`, `wallet_debited`, `wallet_credited`, `transfer_completed`, `transfer_declined_insufficient_funds`, and `idempotent_replay_hit`.
-- `/metrics` (and `/actuator/prometheus`) exports request count, request latency with p50/p95/p99 quantiles, and domain counters:
-  - `wallet_transfers_completed_total`
+- `/metrics` (and `/actuator/prometheus`) exports request count, request latency with p50/p95/p99 quantiles, and domain counters:  - `wallet_transfers_completed_total`
   - `wallet_transfers_declined_insufficient_funds_total`
   - `wallet_idempotent_replays_total`
+- `/dashboard.html` renders the same numbers as a human-readable live page (no dependencies, polls `/metrics`).
 
   Note: `http.server.requests` deliberately publishes client-side percentile quantiles rather than histogram buckets. In Micrometer 1.14 the Prometheus exporter suppresses the quantile series when buckets are published on the same meter, so the two are mutually exclusive; a numeric p99 line readable with curl is the better deal for a single-instance exercise (see `HttpLatencyMetricsConfig`).

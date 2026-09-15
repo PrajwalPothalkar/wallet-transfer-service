@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wallet Service — Dashboard</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0;
+         background: #f6f8fa; color: #1f2328; }
+  header { background: #0d1117; color: #fff; padding: 16px 24px; display: flex;
+           align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .live { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #1a7f37; color: #fff; }
+  .live.stale { background: #9a6700; }
+  .live.down { background: #cf222e; }
+  header .meta { margin-left: auto; font-size: 12px; color: #b6bdc6; font-variant-numeric: tabular-nums; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px 24px 40px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; }
+  .card .label { font-size: 12px; color: #57606a; text-transform: uppercase; letter-spacing: .04em; }
+  .card .value { font-size: 28px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .card .sub { font-size: 12px; color: #57606a; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 15px; margin: 26px 0 10px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px;
+          border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eaeef2;
+           font-variant-numeric: tabular-nums; }
+  th { background: #f6f8fa; font-size: 12px; color: #57606a; text-transform: uppercase;
+       letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .note { font-size: 12px; color: #57606a; margin-top: 14px; }
+  #banner { display: none; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 8px;
+            padding: 10px 14px; font-size: 13px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wallet &amp; P2P Transfer Service</h1>
+  <span id="live" class="live down">connecting…</span>
+  <span class="meta">source: <code>/metrics</code> · refresh 5s · <span id="updated">—</span></span>
+</header>
+<main>
+  <div id="banner"></div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Transfers completed</div><div class="value" id="c-completed">—</div></div>
+    <div class="card"><div class="label">Declined · insufficient funds</div><div class="value" id="c-declined">—</div></div>
+    <div class="card"><div class="label">Idempotent replays</div><div class="value" id="c-replays">—</div></div>
+    <div class="card"><div class="label">HTTP requests</div><div class="value" id="c-requests">—</div>
+      <div class="sub" id="c-rate">— req/s</div></div>
+  </div>
+
+  <h2>Latency p50 / p95 / p99 by endpoint</h2>
+  <table>
+    <thead><tr><th>Method</th><th>Route</th><th>Status</th><th>p50</th><th>p95</th><th>p99</th></tr></thead>
+    <tbody id="latency"><tr><td colspan="6">waiting for first scrape…</td></tr></tbody>
+  </table>
+
+  <h2>Responses by status</h2>
+  <table>
+    <thead><tr><th>Status</th><th>Count</th><th>Share</th></tr></thead>
+    <tbody id="statuses"><tr><td colspan="3">waiting for first scrape…</td></tr></tbody>
+  </table>
+
+  <p class="note">Counters are in-memory: they reset on restart/redeploy, and a sleeping free-tier
+  instance serves the last-known values only after it wakes. Raw scrape stays at
+  <a href="/metrics"><code>/metrics</code></a> (also <code>/actuator/prometheus</code>).</p>
+</main>
+
+<script>
+'use strict';
+// Minimal Prometheus text-format parser: only what this page needs.
+function parseMetrics(text) {
+  const samples = [];
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const m = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(\{[^}]*\})?\s+([0-9.eE+-]+|NaN|\+Inf|-Inf)$/);
+    if (!m) continue;
+    const labels = {};
+    if (m[2]) {
+      const lm = m[2].slice(1, -1).match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"/g) || [];
+      for (const pair of lm) {
+        const kv = pair.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"/);
+        labels[kv[1]] = kv[2];
+      }
+    }
+    samples.push({ name: m[1], labels, value: parseFloat(m[3]) });
+  }
+  return samples;
+}
+
+const get = (samples, name) => {
+  const s = samples.find((x) => x.name === name);
+  return s ? s.value : 0;
+};
+
+const fmtLatency = (s) => (s >= 1 ? s.toFixed(2) + 's' : Math.round(s * 1000) + 'ms');
+const fmtInt = (n) => Math.round(n).toLocaleString('en-US');
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+let prevTotal = null, prevAt = null;
+
+async function refresh() {
+  const live = document.getElementById('live');
+  const banner = document.getElementById('banner');
+  let text;
+  try {
+    const res = await fetch('/metrics', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    text = await res.text();
+  } catch (e) {
+    live.textContent = 'unreachable';
+    live.className = 'live down';
+    banner.style.display = 'block';
+    banner.textContent = 'Could not reach /metrics (' + e.message + '). ' +
+      'The instance may be asleep (free tier) — wait a few seconds and it will retry automatically.';
+    return;
+  }
+  banner.style.display = 'none';
+  live.textContent = 'live';
+  live.className = 'live';
+  document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+
+  const samples = parseMetrics(text);
+  document.getElementById('c-completed').textContent = fmtInt(get(samples, 'wallet_transfers_completed_total'));
+  document.getElementById('c-declined').textContent =
+    fmtInt(get(samples, 'wallet_transfers_declined_insufficient_funds_total'));
+  document.getElementById('c-replays').textContent = fmtInt(get(samples, 'wallet_idempotent_replays_total'));
+
+  const counts = samples.filter((s) => s.name === 'http_server_requests_seconds_count');
+  const total = counts.reduce((a, s) => a + s.value, 0);
+  document.getElementById('c-requests').textContent = fmtInt(total);
+  const now = Date.now();
+  if (prevTotal !== null && now > prevAt) {
+    document.getElementById('c-rate').textContent =
+      ((total - prevTotal) / ((now - prevAt) / 1000)).toFixed(1) + ' req/s';
+  }
+  prevTotal = total; prevAt = now;
+
+  // Latency rows keyed by method + uri + status.
+  const rows = new Map();
+  for (const s of samples) {
+    if (s.name !== 'http_server_requests_seconds' || !s.labels.quantile) continue;
+    const k = s.labels.method + ' ' + s.labels.uri + ' ' + s.labels.status;
+    if (!rows.has(k)) rows.set(k, { method: s.labels.method, uri: s.labels.uri, status: s.labels.status });
+    rows.get(k)[s.labels.quantile] = s.value;
+  }
+  document.getElementById('latency').innerHTML = [...rows.values()]
+    .sort((a, b) => (a.uri + a.method).localeCompare(b.uri + b.method))
+    .map((r) => '<tr><td><code>' + esc(r.method) + '</code></td><td><code>' + esc(r.uri) + '</code></td>' +
+      '<td>' + esc(r.status) + '</td><td>' + fmtLatency(r['0.5'] || 0) + '</td>' +
+      '<td>' + fmtLatency(r['0.95'] || 0) + '</td><td>' + fmtLatency(r['0.99'] || 0) + '</td></tr>')
+    .join('') || '<tr><td colspan="6">no request series yet</td></tr>';
+
+  const byStatus = new Map();
+  for (const s of counts) byStatus.set(s.labels.status, (byStatus.get(s.labels.status) || 0) + s.value);
+  const grand = [...byStatus.values()].reduce((a, v) => a + v, 0) || 1;
+  document.getElementById('statuses').innerHTML = [...byStatus.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([st, n]) => '<tr><td>' + esc(st) + '</td><td>' + fmtInt(n) + '</td>' +
+      '<td>' + (100 * n / grand).toFixed(1) + '%</td></tr>')
+    .join('');
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
